@@ -1,7 +1,15 @@
 node_modules/
 .next/
 dist/
+dist-native/
 out/
+target/
+src-tauri/target/
+src-tauri/gen/
+src-tauri/icons/
+ios/
+ios-derived/
+release/
 .env
 .env.*
 !.env.example

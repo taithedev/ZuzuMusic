@@ -1,0 +1,126 @@
+name: Native Windows and iPhone builds
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "src-tauri/**"
+      - "assets/**"
+      - "package.json"
+      - "index.html"
+      - "vite.native.config.ts"
+      - "capacitor.config.ts"
+      - ".github/workflows/native.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows EXE and installer
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Generate Windows app icons
+        run: npx tauri icon assets/icon.svg
+      - name: Compile native Windows app
+        run: npx tauri build --bundles nsis
+      - name: Collect EXE and setup
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force "release/windows" | Out-Null
+          $binary = Get-ChildItem "src-tauri/target/release" -Filter "*.exe" -File | Where-Object { $_.Name -match "zuzumusic" } | Select-Object -First 1
+          if ($null -eq $binary) { throw "No Windows executable found" }
+          Copy-Item $binary.FullName "release/windows/ZuzuMusic.exe"
+          $installer = Get-ChildItem "src-tauri/target/release/bundle/nsis" -Filter "*.exe" -File | Select-Object -First 1
+          if ($null -eq $installer) { throw "No Windows NSIS setup found" }
+          Copy-Item $installer.FullName "release/windows/ZuzuMusic-Setup.exe"
+          Get-ChildItem "release/windows"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ZuzuMusic-Windows-EXE
+          path: release/windows/*.exe
+          if-no-files-found: error
+          retention-days: 30
+
+  ios:
+    name: iPhone unsigned IPA
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build React player for mobile
+        run: npm run build:native
+      - name: Generate native iOS app (Swift Package Manager)
+        run: |
+          npx cap add ios --packagemanager SPM
+          npx cap sync ios
+      - name: Build device app without Apple signing
+        run: |
+          xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Release \
+            -sdk iphoneos -destination "generic/platform=iOS" \
+            -derivedDataPath "$PWD/ios-derived" \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+      - name: Package unsigned IPA
+        run: |
+          test -d ios-derived/Build/Products/Release-iphoneos/App.app
+          mkdir -p release/ios/Payload
+          cp -R ios-derived/Build/Products/Release-iphoneos/App.app release/ios/Payload/
+          (cd release/ios && zip -qry ../ZuzuMusic-unsigned.ipa Payload)
+          rm -rf release/ios/Payload
+          unzip -t release/ZuzuMusic-unsigned.ipa | tail -n 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ZuzuMusic-iPhone-unsigned-IPA
+          path: release/ZuzuMusic-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish unsigned native preview
+    needs: [windows, ios]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ZuzuMusic-Windows-EXE
+          path: release/windows
+      - uses: actions/download-artifact@v4
+        with:
+          name: ZuzuMusic-iPhone-unsigned-IPA
+          path: release/ios
+      - name: Create preview release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Native alpha preview: local music playback is supported. Creator accounts, uploads and public streaming require a separately configured and deployed backend. iPhone IPA is UNSIGNED and needs valid Apple signing before it can run on an iPhone. Windows EXE/installer are unsigned and may trigger reputation warnings. No Spotify Premium bypass or combined Spotify streaming." > release-notes.txt
+          gh release create "v0.1.0-native-preview.${{ github.run_number }}" \
+            --repo "${{ github.repository }}" \
+            --target "${{ github.sha }}" \
+            --title "ZuzuMusic 0.1 native preview #${{ github.run_number }}" \
+            --prerelease \
+            --notes-file release-notes.txt \
+            release/windows/ZuzuMusic.exe \
+            release/windows/ZuzuMusic-Setup.exe \
+            release/ios/ZuzuMusic-unsigned.ipa

@@ -1,0 +1,16 @@
+[package]
+name = "zuzumusic"
+version = "0.1.0"
+description = "ZuzuMusic independent music player"
+authors = ["ZuzuMusic Contributors"]
+edition = "2021"
+
+[lib]
+name = "zuzumusic_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
