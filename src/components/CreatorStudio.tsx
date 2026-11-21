@@ -23,6 +23,8 @@ export function CreatorStudio({ user, admin, onRequireAuth, onPublished }: {
   const [uploading, setUploading] = useState(false);
   const [myTracks, setMyTracks] = useState<CloudTrack[]>([]);
   const [pending, setPending] = useState<CloudTrack[]>([]);
+  const [previewId, setPreviewId] = useState("");
+  const [previewUrl, setPreviewUrl] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -59,6 +61,13 @@ export function CreatorStudio({ user, admin, onRequireAuth, onPublished }: {
       onPublished();
     } catch (err) { setError(err instanceof Error ? err.message : "Upload failed."); }
     finally { setUploading(false); }
+  }
+
+  async function preview(trackId: string) {
+    try {
+      const data = await api("/api/tracks/" + trackId + "/stream");
+      setPreviewUrl(data.url); setPreviewId(trackId);
+    } catch (err) { setError(err instanceof Error ? err.message : "Preview unavailable."); }
   }
 
   async function review(trackId: string, status: "approved" | "rejected") {
@@ -119,12 +128,13 @@ export function CreatorStudio({ user, admin, onRequireAuth, onPublished }: {
       {admin && <section className="panel moderation-panel">
         <div className="section-heading"><div><span className="eyebrow">ADMIN ONLY</span><h2>Review submissions</h2></div><ShieldCheck size={21} /></div>
         {pending.length === 0 ? <p className="muted">No pending submissions.</p> :
-          pending.map((track) => <div className="release-row" key={track.id}>
+          pending.map((track) => <div className="moderation-item" key={track.id}><div className="release-row">
             <Artwork seed={track.id} size="row" /><div className="release-meta">
               <strong>{track.title}</strong><span>by @{track.creator_username}</span></div>
+            <button className="small-action" onClick={() => void preview(track.id)}>Listen</button>
             <button className="small-action" onClick={() => void review(track.id, "approved")}><Check size={16} /> Approve</button>
             <button className="small-action danger" onClick={() => void review(track.id, "rejected")}><X size={16} /> Reject</button>
-          </div>)}
+          </div>{previewId === track.id && <audio controls autoPlay src={previewUrl} style={{ width: "100%", marginBottom: 14 }} />}</div>)}
       </section>}
     </>}
     {message && <div className="toast success" role="status">{message}</div>}
