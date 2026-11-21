@@ -1,4 +1,4 @@
-import { currentUser } from "@/lib/session";
+import { currentUser, isAdmin } from "@/lib/session";
 import { database } from "@/lib/db";
 import { signStream } from "@/lib/storage";
 import { jsonError } from "@/lib/validation";
@@ -12,7 +12,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     if (!track) return jsonError("Track not found.", 404);
     if (track.status !== "approved") {
       const user = await currentUser();
-      if (!user || user.id !== track.creator_id) return jsonError("Track unavailable.", 403);
+      if (!user || (user.id !== track.creator_id && !isAdmin(user))) return jsonError("Track unavailable.", 403);
     }
     return Response.json({ url: await signStream(track.storage_key as string) }, {
       headers: { "Cache-Control": "no-store" },
